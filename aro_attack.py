@@ -34,7 +34,7 @@ from deepspeech_pytorch.configs.inference_config import TranscribeConfig
 # from deepspeech_pytorch.decoder import Decoder
 # from deepspeech_pytorch.loader.data_loader import ChunkSpectrogramParser
 # from deepspeech_pytorch.model import DeepSpeech
-from deepspeech_pytorch.utils import load_decoder, load_model_for_attack
+#from deepspeech_pytorch.utils import load_decoder, load_model_for_attack
 import torchaudio.transforms as Trans_audio
 # from api.iflytek_ASR import iflytek_ASR
 # from api.Tencent_ASR import tencent_ASR
@@ -111,6 +111,7 @@ class Attacker:
         self.whisper.to(self.device)
         self.whisper_encoder = self.whisper.get_encoder()
         ########################### for DeepSpeech #################################
+        '''
         self.labels = ['_', "'", 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q',
                        'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', ' ']
         self.labels_map = dict([(self.labels[i], i) for i in range(len(self.labels))])
@@ -126,6 +127,7 @@ class Attacker:
         self.wav2spec = Trans_audio.Spectrogram(n_fft=int(self.sample_rate * self.window_size),
                                                 win_length=int(self.sample_rate * self.window_size),
                                                 hop_length=int(self.sample_rate * self.window_stride)).to(self.device)
+        '''
 
     def parse_transcript(self, transcript):
         """
@@ -161,11 +163,11 @@ class Attacker:
             :param tgt_model: The name of the target model, which determines the feature extraction method.
             :return: The extracted audio features.
         """
-        if 'deepspeech' in tgt_model:
-            out_spec = self.calc_spectrogram(wav)
-            input_lengths = torch.LongTensor(out_spec.size(0) * [out_spec.size(2)])
-            _, _, hs = self.spec2trans(out_spec, input_lengths)
-        elif 'hubert' in tgt_model:
+        #if 'deepspeech' in tgt_model:
+        #    out_spec = self.calc_spectrogram(wav)
+        #    input_lengths = torch.LongTensor(out_spec.size(0) * [out_spec.size(2)])
+        #    _, _, hs = self.spec2trans(out_spec, input_lengths)
+        if 'hubert' in tgt_model:
             ouput = self.hubert(wav.to(self.hubert.device), output_hidden_states=True)
             hs = ouput.hidden_states
         elif 'whisper' in tgt_model:
