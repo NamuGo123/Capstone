@@ -332,7 +332,7 @@ class Attacker:
         wav_tgt = wav_tgt.to(self.device)
         logger.info(wav.shape)
         logger.info(wav_tgt.shape)
-        ptb = torch.randn_like(wav).to(self.device) * 0.005
+        ptb = torch.randn_like(wav).to(self.device) * 0.005 # to be changed to smack synthesis
         ptb = torch.nn.Parameter(ptb.requires_grad_(True))
         optimizer = torch.optim.Adam([ptb], 0.001, (0.9, 0.999), weight_decay=1e-4)
         org_feat = self.get_feat(wav, self.tgt_model)
