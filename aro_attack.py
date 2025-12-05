@@ -21,7 +21,7 @@ import torch
 import argparse
 # from tqdm import tqdm
 import random
-# import numpy as np
+import numpy as np
 import os
 import time
 import datetime
@@ -53,7 +53,7 @@ with open(path, "rb") as f:
     dataset = pickle.load(f)
 dataset = dataset[:200]
 
-path = "librispeech_test_clean_waveform_spec_speaker_text.pkl"
+path = "datasets/librispeech_test_clean_waveform_spec_speaker_text.pkl"
 with open(path, "rb") as f:
     tgt_dataset = pickle.load(f)
 tgt_dataset = tgt_dataset[:50]
@@ -195,7 +195,7 @@ class Attacker:
         #    input_lengths = torch.LongTensor(out_spec.size(0) * [out_spec.size(2)])
         #    _, _, hs = self.spec2trans(out_spec, input_lengths)
         if 'hubert' in tgt_model:
-            ouput = self.hubert(wav.to(self.hubert.device), output_hidden_states=True)
+            ouput = self.hubert(wav.to(self.device), output_hidden_states=True)
             hs = ouput.hidden_states
         elif 'whisper' in tgt_model:
             mel = whisper.log_mel_spectrogram(wav, n_mels=80, device=self.device)
@@ -213,7 +213,7 @@ class Attacker:
         elif 'wavlm' in tgt_model:
             # HF WavLMModel interface
             outputs = self.WavLM(
-                wav.to(self.WavLM.device),
+                wav.to(self.device),
                 output_hidden_states=True,
                 return_dict=True,
                 )
@@ -221,7 +221,7 @@ class Attacker:
 
             
         else:
-            ouput = self.wav2vec2(wav.to(self.wav2vec2.device), output_hidden_states=True)
+            ouput = self.wav2vec2(wav.to(self.device), output_hidden_states=True)
             hs = ouput.hidden_states
         if self.target_layer == 'avg':
             wav_feat = torch.mean(torch.stack(hs), axis=0)
@@ -297,12 +297,30 @@ class Attacker:
         del out_trans
         return attack_loss, txt
 
+
+            
     def attack(self, test_models, idx):
         sample_rate = 16000
-        wav = self.wav_input.to(self.device)
-        wav = wav.unsqueeze(0)
+        # Convert self.wav_input to a tensor
+        if isinstance(self.wav_input, torch.Tensor):
+            wav = self.wav_input.to(self.device).float()
+        else:
+            wav = torch.tensor(self.wav_input, dtype=torch.float32, device=self.device)
+    
+        if wav.ndim == 1:
+            wav = wav.unsqueeze(0)  # [1, T]
+    
+        # Target sample from tgt_dataset
         wav_tgt, _, _, self.tgt_text = random.choice(tgt_dataset)
-        wav_tgt = wav_tgt.unsqueeze(0)
+        if isinstance(wav_tgt, torch.Tensor):
+            wav_tgt = wav_tgt.float()
+        else:
+            wav_tgt = torch.tensor(wav_tgt, dtype=torch.float32)
+    
+        if wav_tgt.ndim == 1:
+            wav_tgt = wav_tgt.unsqueeze(0)  # [1, T]
+        wav_tgt = wav_tgt.to(self.device)
+
 
         if 'whisper' not in self.tgt_model:
             self.segment_size = max(wav.size(-1), wav_tgt.size(-1))
