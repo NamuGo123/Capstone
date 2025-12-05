@@ -11,6 +11,8 @@ from transformers import (
     WhisperForConditionalGeneration,
     WhisperTokenizer,
     WhisperFeatureExtractor,
+    WavLMModel,
+    WavLMConfig
 )
 
 # import torchaudio
@@ -34,7 +36,7 @@ from deepspeech_pytorch.configs.inference_config import TranscribeConfig
 # from deepspeech_pytorch.decoder import Decoder
 # from deepspeech_pytorch.loader.data_loader import ChunkSpectrogramParser
 # from deepspeech_pytorch.model import DeepSpeech
-#from deepspeech_pytorch.utils import load_decoder, load_model_for_attack
+from deepspeech_pytorch.utils import load_decoder, load_model
 import torchaudio.transforms as Trans_audio
 # from api.iflytek_ASR import iflytek_ASR
 # from api.Tencent_ASR import tencent_ASR
@@ -44,7 +46,7 @@ from torch.cuda.amp import autocast
 import whisper
 import metrics
 import pickle
-from WavLM.WavLM import WavLM, WavLMConfig
+#from WavLM.WavLM import WavLM, WavLMConfig
 
 path = "datasets/librispeech_train_clean100_waveform_spec_speaker_text.pkl"
 with open(path, "rb") as f:
@@ -94,10 +96,18 @@ class Attacker:
         self.whisper_feature_extractor = WhisperFeatureExtractor.from_pretrained(model_path)
 
         # WavLM-Large
+        '''
         checkpoint = torch.load('WavLM/WavLM-Large.pt')
         cfg = WavLMConfig(checkpoint['cfg'])
         self.WavLM = WavLM(cfg)
         self.WavLM.load_state_dict(checkpoint['model'])
+        self.WavLM.eval()
+        self.WavLM.to(self.device)
+        '''
+        # replaced by:
+        model_name = "microsoft/wavlm-large"  # HF hub ID
+        self.wavlm_config = WavLMConfig.from_pretrained(model_name)
+        self.WavLM = WavLMModel.from_pretrained(model_name)
         self.WavLM.eval()
         self.WavLM.to(self.device)
 
@@ -111,13 +121,12 @@ class Attacker:
         self.whisper.to(self.device)
         self.whisper_encoder = self.whisper.get_encoder()
         ########################### for DeepSpeech #################################
-        '''
         self.labels = ['_', "'", 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q',
                        'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', ' ']
         self.labels_map = dict([(self.labels[i], i) for i in range(len(self.labels))])
         self.attack_criterion = nn.CTCLoss(blank=self.labels.index('_'), reduction='sum', zero_infinity=True)
         tgt_model_path = 'pretrained/deepspeech/librispeech_pretrained_v3.ckpt'
-        self.deepspeech = load_model_for_attack(device=self.device, model_path=tgt_model_path)
+        self.deepspeech = load_model(device=self.device, model_path=tgt_model_path)
         self.deep_speech_cfg = TranscribeConfig()
         self.decoder = load_decoder(labels=self.deepspeech.labels, cfg=self.deep_speech_cfg.lm)
         self.sample_rate = 16000
@@ -127,7 +136,6 @@ class Attacker:
         self.wav2spec = Trans_audio.Spectrogram(n_fft=int(self.sample_rate * self.window_size),
                                                 win_length=int(self.sample_rate * self.window_size),
                                                 hop_length=int(self.sample_rate * self.window_stride)).to(self.device)
-        '''
 
     def parse_transcript(self, transcript):
         """
@@ -173,13 +181,26 @@ class Attacker:
         elif 'whisper' in tgt_model:
             mel = whisper.log_mel_spectrogram(wav, n_mels=80, device=self.device)
             hs = self.whisper_encoder(mel, output_hidden_states=True).hidden_states
+            '''
+            elif 'wavlm' in tgt_model:
+                # extract the representation of each layer
+                if self.WavLM.cfg.normalize:
+                    wav = torch.nn.functional.layer_norm(wav, wav.shape)
+                rep, layer_results = \
+                    self.WavLM.extract_features(wav, output_layer=self.WavLM.cfg.encoder_layers, ret_layer_results=True)[0]
+                hs = [x.transpose(0, 1) for x, _ in layer_results]
+            '''
+        # replaced by: 
         elif 'wavlm' in tgt_model:
-            # extract the representation of each layer
-            if self.WavLM.cfg.normalize:
-                wav = torch.nn.functional.layer_norm(wav, wav.shape)
-            rep, layer_results = \
-                self.WavLM.extract_features(wav, output_layer=self.WavLM.cfg.encoder_layers, ret_layer_results=True)[0]
-            hs = [x.transpose(0, 1) for x, _ in layer_results]
+            # HF WavLMModel interface
+            outputs = self.WavLM(
+                wav.to(self.WavLM.device),
+                output_hidden_states=True,
+                return_dict=True,
+                )
+            hs = outputs.hidden_states  # tuple of [batch, seq_len, hidden_dim]
+
+            
         else:
             ouput = self.wav2vec2(wav.to(self.wav2vec2.device), output_hidden_states=True)
             hs = ouput.hidden_states
@@ -401,7 +422,7 @@ if __name__ == '__main__':
     for tgt_model in args.test_models:
         res[tgt_model] = []
     wav_paths = []
-    for i, (wav_input, ori_txt, *rest) in enumerate(dataset):
+    for i, (wav_input, spec, spk_id, txt) in enumerate(dataset):
         logger.info(
             f"\n\n===============================================================================================================================\n"
             f"=====                                                      No.{i}                                                           =====\n"
@@ -409,7 +430,7 @@ if __name__ == '__main__':
 
         # Update args for the current iteration
         args.wav_input = wav_input
-        args.ori_text = ori_txt
+        args.ori_text = txt  # this is the actual transcript
         args.output_dir = output_dir # Use the constructed output_dir
 
         attacker = Attacker(args)
