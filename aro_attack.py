@@ -1,6 +1,6 @@
 import os
 os.environ["USE_TF"] = "0"
-os.environ["TRANSFORMERS_NO_TF_WARNING"] = "1"  # optional, just hides TF-related warnings
+os.environ["TRANSFORMERS_NO_TF_WARNING"] = "1"  # hides TF-related warnings
 
 from transformers import HubertModel
 from transformers import (
@@ -53,20 +53,24 @@ with open(path, "rb") as f:
     dataset = pickle.load(f)
 dataset = dataset[:200]
 
-'''
-path = "datasets/vctk_short_for_semantic.pkl"
+path = "librispeech_test_clean_waveform_spec_speaker_text.pkl"
 with open(path, "rb") as f:
     tgt_dataset = pickle.load(f)
 tgt_dataset = tgt_dataset[:50]
-'''
 
 
 class Attacker:
     def __init__(self, args):
         self.device = 'cuda:1' if torch.cuda.is_available() else 'cpu'
+        '''
         model_path = 'hugging_face/hubert'
         self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(model_path)
         self.hubert = HubertModel.from_pretrained(model_path).eval().to(self.device)
+        '''
+        # replaced by:
+        hubert_model_id = "facebook/hubert-large-ls960-ft"  # or "facebook/hubert-base-ls960"
+        self.hubert = HubertModel.from_pretrained(hubert_model_id).eval().to(self.device)
+        
         self.target_layer = args.tgt_layer - 1
         self.tgt_model = args.tgt_model
         self.wav_input = args.wav_input
@@ -78,10 +82,18 @@ class Attacker:
         self.tgt_text = None
         self.ori_text = args.ori_text
         self.if_slm_loss = args.if_slm_loss
+        '''
         model_path = "hugging_face/wav2vec2_base_960h"
         self.wav2vec2 = Wav2Vec2ForCTC.from_pretrained(model_path)
         self.processor = Wav2Vec2Processor.from_pretrained(model_path)
         self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(model_path)
+        '''
+        # replaced by:
+        wav2vec2_model_id = "facebook/wav2vec2-base-960h"
+        self.wav2vec2 = Wav2Vec2ForCTC.from_pretrained(wav2vec2_model_id)
+        self.processor = Wav2Vec2Processor.from_pretrained(wav2vec2_model_id)
+        self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(wav2vec2_model_id)
+
         self.wav2vec2_pipe = pipeline(
             task="automatic-speech-recognition",
             model=self.wav2vec2,
@@ -90,10 +102,17 @@ class Attacker:
             device=self.device
         )
         self.wav2vec2.to(self.device)
+        '''
         model_path = "hugging_face/whisper_small"
         self.whisper = WhisperForConditionalGeneration.from_pretrained(model_path)
         self.whisper_tokenizer = WhisperTokenizer.from_pretrained(model_path)
         self.whisper_feature_extractor = WhisperFeatureExtractor.from_pretrained(model_path)
+        '''
+        # replaced by:
+        whisper_model_id = "openai/whisper-small"
+        self.whisper = WhisperForConditionalGeneration.from_pretrained(whisper_model_id)
+        self.whisper_tokenizer = WhisperTokenizer.from_pretrained(whisper_model_id)
+        self.whisper_feature_extractor = WhisperFeatureExtractor.from_pretrained(whisper_model_id)
 
         # WavLM-Large
         '''
@@ -435,7 +454,7 @@ if __name__ == '__main__':
 
         attacker = Attacker(args)
         ans_now, path = attacker.attack(args.test_models, i)
-        wav_paths.append((path, ori_txt))
+        wav_paths.append((path, txt))
         for tgt_model in args.test_models:
             res[tgt_model] += ans_now[tgt_model]
 
