@@ -167,6 +167,7 @@ class Attacker:
         transcript_tensor = torch.tensor(transcript_n, dtype=torch.long)
         return transcript_tensor
 
+    '''
     def test_wav(self, x, target_model):
         """
             Tests a given audio waveform x with different ASR models and prints the results.
@@ -182,6 +183,55 @@ class Attacker:
             sf.write(path, audio, 22050)
             txt = aliyun_ASR(path)
         return txt
+    '''    
+    def test_wav(self, x, target_model):
+        """
+        Tests a given audio waveform x with different ASR models and returns the transcript.
+        :param x: The input audio waveform (torch.Tensor or np.ndarray), 1D or [1, T].
+        """
+        # --- Normalize input to a 1D torch.FloatTensor on CPU ---
+        if isinstance(x, np.ndarray):
+            wav = torch.from_numpy(x).float()
+        else:
+            # assume torch.Tensor
+            wav = x.detach().cpu().float()
+
+        # Squeeze batch/channel dims if present
+        if wav.ndim > 1:
+            wav = wav.squeeze(0)
+
+        # Optional normalization to [-1, 1]
+        max_val = wav.abs().max()
+        if max_val > 0:
+            wav = wav / max_val
+
+        if 'wav2vec2' in target_model:
+            # Directly feed raw waveform to wav2vec2
+            input_values = wav.unsqueeze(0).to(self.device)  # [1, T]
+            with torch.no_grad():
+                logits = self.wav2vec2(input_values).logits  # [1, seq_len, vocab]
+            pred_ids = torch.argmax(logits, dim=-1)
+            txt = self.processor.batch_decode(pred_ids)[0]
+
+        elif 'whisper' in target_model:
+            # For now, avoid HF Whisper feature extractor / dtype weirdness
+            logger.warning(
+                "Whisper evaluation is disabled in this environment; "
+                "returning empty string for whisper transcript."
+            )
+            txt = ""
+
+        elif 'aliyun' in target_model:
+            # If you ever re-enable this:
+            wav_np = wav.numpy()
+            path = "cache/tmp.wav"
+            sf.write(path, wav_np, 22050)
+            txt = aliyun_ASR(path)
+        else:
+            txt = ""
+
+        return txt
+    
 
     def get_feat(self, wav, tgt_model):
         """
@@ -403,7 +453,9 @@ class Attacker:
                     out_log += f'\n{tgt_model}: {txt}'
                 logger.info(out_log)
 
-        path = os.path.join(self.output_dir, f'{idx}_SLM_{i}_{self.ori_text}_{self.tgt_text}.wav')
+        filename = f"{idx}_SLM_{i}.wav"
+        path = os.path.join(self.output_dir, filename)
+        
         self.save_wav(adv_wav.squeeze(0).detach().cpu().numpy(), path)
         res = {}
         for tgt_model in test_models:
